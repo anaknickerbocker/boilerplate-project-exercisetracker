@@ -1,141 +1,128 @@
 const express = require('express')
 const app = express()
 const cors = require('cors')
-const bodyParser = require("body-parser");
+const bodyParser = require('body-parser')
 require('dotenv').config()
 
 app.use(cors())
 app.use(express.static('public'))
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
     res.sendFile(__dirname + '/views/index.html')
-});
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+})
+app.use(bodyParser.urlencoded({ extended: false }))
+app.use(bodyParser.json())
 
-const MongoClient = require('mongodb').MongoClient;
-const mongoose = require("mongoose");
-const uri = process.env.MONGO_URI;
-mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+const mongoose = require('mongoose')
+const uri = process.env.MONGO_URI
+mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error:'))
 
 const userSchema = mongoose.Schema({
-    user: { type: String, required: true }
-});
+    username: { type: String, required: true },
+})
 const exerciseSchema = mongoose.Schema({
     uid: { type: String, required: true },
     desc: { type: String, required: true },
     dur: { type: Number, required: true },
-    date: { type: Date, required: true }
-});
+    date: { type: Date, required: true },
+})
 
-const User = mongoose.model("User", userSchema);
-const Exercise = mongoose.model("Exercise", exerciseSchema);
+const User = mongoose.model('User', userSchema)
+const Exercise = mongoose.model('Exercise', exerciseSchema)
 
 // 1. I can create a user by posting form data username to
 // /api/exercise/new-user
 // and returned will be an object with username and _id.
-app.post("/api/exercise/new-user", (req, res, _next) => {
-    const user = req.body.username;
-    const userDoc = new User({ user });
-    userDoc.save((err) => {
-        if (err) console.log(err.message);
-    });
-    res.json({ _id: userDoc["_id"], user: userDoc.user });
-});
+app.post('/api/exercise/new-user', async (req, res, _next) => {
+    const username = req.body.username
+    const userDoc = new User({ username })
+    const user = await userDoc.save()
+    res.json(user)
+})
 
 // 2. I can get an array of all users by getting
 // api/exercise/users with the same info as when creating a user.
-app.get("/api/exercise/users", (req, res, next) => {
-    User.find({}, "-__v", (err, users) => {
-        if (err) return next(err);
-        res.json(users);
-    });
-});
+app.get('/api/exercise/users', async (_req, res, _next) => {
+    const users = await User.find({})
+    res.json(users)
+})
 
 // 3. I can add an exercise to any user by posting form data userId(_id),
 // description, duration, and optionally date to /api/exercise/add.
 // If no date supplied it will use current date.
 // Returned will the the user object with also with the exercise fields added.
-app.post("/api/exercise/add", (req, res) => {
-    let uid = req.body.userId;
-    let desc = req.body.description;
-    let dur = req.body.duration;
-    let dat = req.body.date || Date.now();
+app.post('/api/exercise/add', async (req, res) => {
+    const uid = req.body.userId
+    const desc = req.body.description
+    const dur = req.body.duration
+    const date = req.body.date || Date.now()
+    const user = await User.findOne({ _id: uid });
+    if (user) {
+        const exercise = new Exercise({
+            uid,
+            desc,
+            dur,
+            date,
+        })
 
-    User.findById(uid, "-__v")
-        .populate("logDetails")
-        .exec((err, userData) => {
-            const logDoc = new Exercise({
-                uid,
-                desc,
-                dur,
-                date: dat
-            });
-
-            logDoc.save((err, data) => {
-                if (err) console.log(err.message);
-                res.json({
-                    uid: userData._id,
-                    user: userData.user,
-                    desc: data.desc,
-                    dur: data.dur,
-                    date: data.date
-                });
-            });
-        });
-});
+        await exercise.save()
+        res.json({
+            uid: exercise.uid,
+            username: user.username,
+            desc: exercise.desc,
+            dur: exercise.dur,
+            date: exercise.date,
+        })
+    } else {
+        res.send('User not found.')
+    }
+})
 
 // 4. I can retrieve a full exercise log of any user by getting
 // /api/exercise/log with a parameter of userId(_id).
 // Return will be the user object with added array log and
 // count (total exercise count).
-app.get("/api/exercise/log", (req, res, next) => {
-    let userId = req.query.userId;
-    if (!userId) throw new Error("You must provide a User ID!");
+app.get('/api/exercise/log', async (req, res, _next) => {
+    const userId = req.query.userId
+    const from = req.query.from || '2000-01-01'
+    const to = req.query.to || '3000-01-01'
+    const limit = req.query.limit || 9999
 
-    let from = new Date(req.query.from) || new Date(2000 - 01 - 01);
-    let to = new Date(req.query.to) || new Date(3000 - 01 - 01);
-    let limit = req.query.limit || 9999;
-    let logData = [];
+    const user = User.find({ _id: userId });
+    if (user) {
+        const exercises = await Exercise.find({})
+            .gt('date', new Date(from))
+            .lt('date', new Date(to))
+            .limit(limit)
 
-    User.findById(userId, (err, users) => {
-        Exercise.find({}, "-uid -__v")
-            // gt('date', from).
-            // lt('date', to).
-            // limit(limit).
-            .exec((err, logs) => {
-                logs.forEach(log => {
-                    logData.push(log);
-                });
-                res.json({ users, logData });
-            });
-    });
-});
+        res.json({ count: exercises.length, exercises })
+    }
+})
 
 // Not found middleware
-app.use((req, res, next) => {
-    return next({ status: 404, message: "not found" });
-});
+app.use((_req, _res, next) => {
+    return next({ status: 404, message: 'not found' })
+})
 
 // Error Handling middleware
 app.use((err, _req, res, _next) => {
-    let errCode, errMessage;
+    let errCode
+    let errMessage
 
     if (err.errors) {
         // mongoose validation error
-        errCode = 400; // bad request
-        const keys = Object.keys(err.errors);
+        errCode = 400 // bad request
+        const keys = Object.keys(err.errors)
         // report the first validation error
-        errMessage = err.errors[keys[0]].message;
+        errMessage = err.errors[keys[0]].message
     } else {
         // generic or custom error
-        errCode = err.status || 500;
-        errMessage = err.message || "Internal Server Error";
+        errCode = err.status || 500
+        errMessage = err.message || 'Internal Server Error'
     }
-    res
-        .status(errCode)
-        .type("txt")
-        .send(errMessage);
-});
+    res.status(errCode).type('txt').send(errMessage)
+})
 
 const listener = app.listen(process.env.PORT || 3000, () => {
     console.log('Your app is listening on port ' + listener.address().port)
