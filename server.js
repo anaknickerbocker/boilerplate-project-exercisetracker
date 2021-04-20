@@ -1,9 +1,18 @@
-const express = require('express')
-const app = express()
-const cors = require('cors')
-const bodyParser = require('body-parser')
-require('dotenv').config()
+'use strict'
 
+import express from 'express'
+import cors from 'cors'
+import bodyParser from 'body-parser'
+import dotenv from 'dotenv'
+import mongoose from 'mongoose'
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const app = express()
+dotenv.config()
 app.use(cors())
 app.use(express.static('public'))
 app.get('/', (_req, res) => {
@@ -12,7 +21,6 @@ app.get('/', (_req, res) => {
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use(bodyParser.json())
 
-const mongoose = require('mongoose')
 const uri = process.env.MONGO_URI
 mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
 const db = mongoose.connection;
